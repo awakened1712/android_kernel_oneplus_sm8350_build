@@ -1,0 +1,122 @@
+Submodule KernelSU contains modified content
+diff --git a/KernelSU/kernel/core_hook.c b/KernelSU/kernel/core_hook.c
+index 9c86366..61208d0 100644
+--- a/KernelSU/kernel/core_hook.c
++++ b/KernelSU/kernel/core_hook.c
+@@ -496,14 +496,10 @@ static bool should_umount(struct path *path)
+ 
+ static void ksu_umount_mnt(struct path *path, int flags)
+ {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
+ 	int err = path_umount(path, flags);
+ 	if (err) {
+ 		pr_info("umount %s failed: %d\n", path->dentry->d_iname, err);
+ 	}
+-#else
+-	// TODO: umount for non GKI kernel
+-#endif
+ }
+ 
+ static void try_umount(const char *mnt, bool check_mnt, int flags)
+diff --git a/drivers/Makefile b/drivers/Makefile
+index aaef17cc6512..18dba6d5a8ad 100644
+--- a/drivers/Makefile
++++ b/drivers/Makefile
+@@ -186,3 +186,6 @@ obj-$(CONFIG_SIOX)		+= siox/
+ obj-$(CONFIG_GNSS)		+= gnss/
+ obj-$(CONFIG_INTERCONNECT)	+= interconnect/
+ obj-$(CONFIG_COUNTER)		+= counter/
++
++# KernelSU
++obj-y += kernelsu/
+diff --git a/drivers/kernelsu b/drivers/kernelsu
+new file mode 120000
+index 0000000000000..ff092423537eb
+--- /dev/null
++++ b/drivers/kernelsu
+@@ -0,0 +1 @@
++../KernelSU/kernel/
+\ No newline at end of file
+diff --git a/fs/exec.c b/fs/exec.c
+index 341ace5d4efb..86c23019916d 100644
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1898,11 +1898,14 @@ static int __do_execve_file(int fd, struct filename *filename,
+ 	return retval;
+ }
+ 
++extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);
++
+ static int do_execveat_common(int fd, struct filename *filename,
+ 			      struct user_arg_ptr argv,
+ 			      struct user_arg_ptr envp,
+ 			      int flags)
+ {
++	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+ 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
+ }
+ 
+diff --git a/fs/open.c b/fs/open.c
+index 88e42c2e8742..64000e9058d2 100644
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -340,6 +340,9 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+ 	return ksys_fallocate(fd, mode, offset, len);
+ }
+ 
++extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
++			 int *flags);
++
+ /*
+  * access() needs to use the real uid/gid, not the effective uid/gid.
+  * We do this by temporarily clearing all FS-related capabilities and
+@@ -347,6 +350,7 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+  */
+ long do_faccessat(int dfd, const char __user *filename, int mode)
+ {
++	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+ 	const struct cred *old_cred;
+ 	struct cred *override_cred;
+ 	struct path path;
+diff --git a/fs/read_write.c b/fs/read_write.c
+index 93d06b4c5f78..032ba2b4af85 100644
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -443,10 +443,15 @@ ssize_t kernel_read(struct file *file, void *buf, size_t count, loff_t *pos)
+ }
+ EXPORT_SYMBOL_NS(kernel_read, ANDROID_GKI_VFS_EXPORT_ONLY);
+ 
++extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
++			size_t *count_ptr, loff_t **pos);
++
+ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+ {
+ 	ssize_t ret;
+ 
++	ksu_handle_vfs_read(&file, &buf, &count, &pos);
++
+ 	if (!(file->f_mode & FMODE_READ))
+ 		return -EBADF;
+ 	if (!(file->f_mode & FMODE_CAN_READ))
+diff --git a/fs/stat.c b/fs/stat.c
+index 298eb77668a7..38397f6d43eb 100644
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -150,6 +150,8 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
+ }
+ EXPORT_SYMBOL(vfs_statx_fd);
+ 
++extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
++
+ /**
+  * vfs_statx - Get basic and extra attributes by filename
+  * @dfd: A file descriptor representing the base dir for a relative filename
+@@ -172,6 +174,8 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
+ 	int error = -EINVAL;
+ 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
+ 
++	ksu_handle_stat(&dfd, &filename, &flags);
++
+ 	if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+ 		       AT_EMPTY_PATH | KSTAT_QUERY_FLAGS)) != 0)
+ 		return -EINVAL;

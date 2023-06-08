@@ -1,0 +1,38 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout kernel source
+      uses: actions/checkout@v3
+      with:
+        repository: awakened1712/android_kernel_oneplus_sm8350
+        ref: lineage-20
+        path: sm8350
+        fetch-depth: 100
+
+    - name: Checkout gcc toolchain
+      uses: actions/checkout@v3
+      with:
+        repository: mvaisakh/gcc-arm64
+        ref: 05cb20a52f12389c3f2340b5103485108feae302
+        path: toolchain
+
+    - name: Android kernel build
+      run: |
+        sudo apt install libdebuginfod-dev
+        export PATH="$(pwd)/toolchain/bin:${PATH}"
+        cd sm8350 && bash build.sh
+        git log --no-decorate --oneline -n 100 > out/ak3/ChangeLog.txt
+
+    - name: Upload final output
+      uses: actions/upload-artifact@v3
+      with:
+        name: release
+        path: |
+          sm8350/out/ak3/ChangeLog.txt
+          sm8350/out/ak3/*.zip
