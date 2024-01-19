@@ -1,4 +1,4 @@
-name: Build Kernel (With KSU)
+name: Build Lineage-21 Kernel (With KSU)
 
 on:
   workflow_dispatch:
