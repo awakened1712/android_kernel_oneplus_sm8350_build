@@ -1,23 +1,4 @@
 Submodule KernelSU contains modified content
-diff --git a/KernelSU/kernel/core_hook.c b/KernelSU/kernel/core_hook.c
-index 9c86366..61208d0 100644
---- a/KernelSU/kernel/core_hook.c
-+++ b/KernelSU/kernel/core_hook.c
-@@ -496,14 +496,10 @@ static bool should_umount(struct path *path)
- 
- static void ksu_umount_mnt(struct path *path, int flags)
- {
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
- 	int err = path_umount(path, flags);
- 	if (err) {
- 		pr_info("umount %s failed: %d\n", path->dentry->d_iname, err);
- 	}
--#else
--	// TODO: umount for non GKI kernel
--#endif
- }
- 
- static void try_umount(const char *mnt, bool check_mnt, int flags)
 diff --git a/drivers/Makefile b/drivers/Makefile
 index aaef17cc6512..18dba6d5a8ad 100644
 --- a/drivers/Makefile
