@@ -1,4 +1,17 @@
 Submodule KernelSU contains modified content
+diff --git a/arch/arm64/configs/vendor/lahaina-qgki_defconfig b/arch/arm64/configs/vendor/lahaina-qgki_defconfig
+index f9b06453f647..c2d61a79eb57 100644
+--- a/arch/arm64/configs/vendor/lahaina-qgki_defconfig
++++ b/arch/arm64/configs/vendor/lahaina-qgki_defconfig
+@@ -6656,4 +6656,8 @@ CONFIG_ARCH_HAS_DEVMEM_IS_ALLOWED=y
+ # CONFIG_DEBUG_WX is not set
+ # CONFIG_DEBUG_ALIGN_RODATA is not set
+ # CONFIG_CORESIGHT is not set
++
++# KernelSU
++CONFIG_KSU=y
++
+ # end of Kernel hacking
 diff --git a/drivers/Makefile b/drivers/Makefile
 index aaef17cc6512..18dba6d5a8ad 100644
 --- a/drivers/Makefile
@@ -19,85 +32,107 @@ index 0000000000000..ff092423537eb
 +../KernelSU/kernel/
 \ No newline at end of file
 diff --git a/fs/exec.c b/fs/exec.c
-index 341ace5d4efb..86c23019916d 100644
+index 341ace5d4efb..f7238e14d38b 100644
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -1898,11 +1898,14 @@ static int __do_execve_file(int fd, struct filename *filename,
- 	return retval;
+@@ -1898,11 +1898,24 @@ static int __do_execve_file(int fd, struct filename *filename,
+        return retval;
  }
  
-+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);
-+
++#ifdef CONFIG_KSU
++extern bool ksu_execveat_hook __read_mostly;
++extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
++                       void *envp, int *flags);
++extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
++                                void *argv, void *envp, int *flags);
++#endif
  static int do_execveat_common(int fd, struct filename *filename,
- 			      struct user_arg_ptr argv,
- 			      struct user_arg_ptr envp,
- 			      int flags)
+                              struct user_arg_ptr argv,
+                              struct user_arg_ptr envp,
+                              int flags)
  {
-+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
- 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
++#ifdef CONFIG_KSU
++       if (unlikely(ksu_execveat_hook))
++               ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
++       else
++               ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
++#endif
+        return __do_execve_file(fd, filename, argv, envp, flags, NULL);
  }
  
 diff --git a/fs/open.c b/fs/open.c
-index 88e42c2e8742..64000e9058d2 100644
+index 929b797658a1..5f3e8c42e79a 100644
 --- a/fs/open.c
 +++ b/fs/open.c
-@@ -340,6 +340,9 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
- 	return ksys_fallocate(fd, mode, offset, len);
+@@ -351,6 +351,10 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+        return ksys_fallocate(fd, mode, offset, len);
  }
  
++#ifdef CONFIG_KSU
 +extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
-+			 int *flags);
-+
++                        int *flags);
++#endif
  /*
   * access() needs to use the real uid/gid, not the effective uid/gid.
   * We do this by temporarily clearing all FS-related capabilities and
-@@ -347,6 +350,7 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+@@ -358,6 +362,9 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
   */
  long do_faccessat(int dfd, const char __user *filename, int mode)
  {
-+	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
- 	const struct cred *old_cred;
- 	struct cred *override_cred;
- 	struct path path;
++#ifdef CONFIG_KSU
++       ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
++#endif
+        const struct cred *old_cred;
+        struct cred *override_cred;
+        struct path path;
 diff --git a/fs/read_write.c b/fs/read_write.c
-index 93d06b4c5f78..032ba2b4af85 100644
+index 93d06b4c5f78..62735c343d8f 100644
 --- a/fs/read_write.c
 +++ b/fs/read_write.c
-@@ -443,10 +443,15 @@ ssize_t kernel_read(struct file *file, void *buf, size_t count, loff_t *pos)
+@@ -443,10 +443,20 @@ ssize_t kernel_read(struct file *file, void *buf, size_t count, loff_t *pos)
  }
  EXPORT_SYMBOL_NS(kernel_read, ANDROID_GKI_VFS_EXPORT_ONLY);
  
++#ifdef CONFIG_KSU
++extern bool ksu_vfs_read_hook __read_mostly;
 +extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
-+			size_t *count_ptr, loff_t **pos);
-+
++                       size_t *count_ptr, loff_t **pos);
++#endif
  ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
  {
- 	ssize_t ret;
+        ssize_t ret;
  
-+	ksu_handle_vfs_read(&file, &buf, &count, &pos);
++#ifdef CONFIG_KSU 
++       if (unlikely(ksu_vfs_read_hook))
++               ksu_handle_vfs_read(&file, &buf, &count, &pos);
++#endif
 +
- 	if (!(file->f_mode & FMODE_READ))
- 		return -EBADF;
- 	if (!(file->f_mode & FMODE_CAN_READ))
+        if (!(file->f_mode & FMODE_READ))
+                return -EBADF;
+        if (!(file->f_mode & FMODE_CAN_READ))
 diff --git a/fs/stat.c b/fs/stat.c
-index 298eb77668a7..38397f6d43eb 100644
+index f652cf458c36..a7a75a0974f3 100644
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -150,6 +150,8 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
+@@ -155,6 +155,10 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
  }
  EXPORT_SYMBOL(vfs_statx_fd);
  
++#ifdef CONFIG_KSU
 +extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
++#endif
 +
  /**
   * vfs_statx - Get basic and extra attributes by filename
   * @dfd: A file descriptor representing the base dir for a relative filename
-@@ -172,6 +174,8 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
- 	int error = -EINVAL;
- 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
+@@ -177,6 +181,10 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
+        int error = -EINVAL;
+        unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
  
-+	ksu_handle_stat(&dfd, &filename, &flags);
++#ifdef CONFIG_KSU
++       ksu_handle_stat(&dfd, &filename, &flags);
++#endif
 +
- 	if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
- 		       AT_EMPTY_PATH | KSTAT_QUERY_FLAGS)) != 0)
- 		return -EINVAL;
+        if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+                       AT_EMPTY_PATH | KSTAT_QUERY_FLAGS)) != 0)
+                return -EINVAL;
